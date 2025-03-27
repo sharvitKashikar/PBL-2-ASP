@@ -152,5 +152,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Contact
 
 Sharvit Kashikar - [@sharvitkashikar](https://github.com/sharvitkashikar)
+Atharva Dethe - [@Atharvadethe](https://github.com/Atharvadethe)
 
 Project Link: [https://github.com/sharvitkashikar/PBL-2-ASP](https://github.com/sharvitkashikar/PBL-2-ASP) 
