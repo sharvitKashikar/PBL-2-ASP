@@ -6,6 +6,9 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import authRoutes from './routes/auth';
 import summarizeRoutes from './routes/summarize';
+import historyRoutes from './routes/history';
+import path from 'path';
+import fs from 'fs';
 
 // Load environment variables
 dotenv.config();
@@ -32,9 +35,16 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(morgan('dev')); // Request logging
 
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/summarize', summarizeRoutes);
+app.use('/api/history', historyRoutes);
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
@@ -78,35 +88,41 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 // MongoDB connection with retry logic
-const connectWithRetry = async () => {
-  const maxRetries = 5;
-  let retries = 0;
+const connectWithRetry = async (retryCount = 1, maxRetries = 5) => {
+  try {
+    const options = {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000,
+      maxPoolSize: 10
+    };
 
-  while (retries < maxRetries) {
-    try {
-      await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/summarizer');
-      console.log('Connected to MongoDB');
-      break;
-    } catch (error) {
-      retries++;
-      console.error(`MongoDB connection attempt ${retries} failed:`, error);
-      if (retries === maxRetries) {
-        console.error('Max retries reached. Exiting...');
-        process.exit(1);
+    await mongoose.connect(process.env.MONGODB_URI as string, options as any);
+    console.log('MongoDB connected successfully');
+    
+    // Start server only after successful database connection
+    app.listen(port, () => {
+      console.log(`Server is running on port ${port}`);
+      console.log(`Environment: ${process.env.NODE_ENV}`);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('CORS enabled for:', corsOptions.origin);
       }
-      // Wait before retrying (exponential backoff)
-      await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 1000));
+    });
+
+  } catch (error) {
+    console.error(`MongoDB connection attempt ${retryCount} failed:`, error);
+    
+    if (retryCount < maxRetries) {
+      console.log(`Retrying in 5 seconds... (Attempt ${retryCount + 1}/${maxRetries})`);
+      setTimeout(() => {
+        connectWithRetry(retryCount + 1, maxRetries);
+      }, 5000);
+    } else {
+      console.error('Failed to connect to MongoDB after maximum retries');
+      process.exit(1);
     }
   }
 };
 
-// Start server only after successful MongoDB connection
-connectWithRetry().then(() => {
-  app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-    console.log(`Environment: ${process.env.NODE_ENV}`);
-    if (process.env.NODE_ENV === 'development') {
-      console.log('CORS enabled for:', corsOptions.origin);
-    }
-  });
-}); 
+// Initialize connection
+connectWithRetry(); 

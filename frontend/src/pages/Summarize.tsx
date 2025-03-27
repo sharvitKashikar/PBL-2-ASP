@@ -138,7 +138,7 @@ export default function Summarize() {
           <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 text-transparent bg-clip-text mb-4">
             AI Text Summarization
           </h1>
-          <p className="text-xl text-gray-600">
+          <p className="text-xl text-black">
             Transform your content into concise, meaningful summaries powered by advanced AI
           </p>
         </div>
@@ -174,7 +174,7 @@ export default function Summarize() {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   placeholder="Enter your text here..."
-                  className="w-full h-48 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-all duration-200"
+                  className="w-full h-48 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-all duration-200 text-black"
                   required
                 />
               </div>
@@ -187,7 +187,7 @@ export default function Summarize() {
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="Enter URL to summarize..."
-                  className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                  className=" text-black w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                   required
                 />
               </div>
