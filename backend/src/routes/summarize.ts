@@ -6,11 +6,15 @@ import axios from 'axios';
 import fs from 'fs/promises';
 import pdf from 'pdf-parse';
 import dotenv from 'dotenv';
-
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
 
 dotenv.config();
 
 const router = express.Router();
+
+const execAsync = promisify(exec);
 
 // Ensure uploads directory exists
 const UPLOAD_DIR = 'uploads';
@@ -654,136 +658,105 @@ router.post('/text', auth, async (req: any, res) => {
   }
 });
 
-// Helper function to extract text from HTML
-const extractTextFromHTML = (html: string): string => {
-  let text = html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"');
-  
-  return cleanText(text);
-};
-
-// Validate URL
-const isValidUrl = (url: string): boolean => {
-  try {
-    new URL(url);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-// Summarize URL
+// Update the URL summarization endpoint
 router.post('/url', auth, async (req: any, res) => {
   try {
     const { url } = req.body;
     
-    // Input validation
     if (!url) {
-      return res.status(400).json({ error: 'No URL provided' });
+      return res.status(400).json({ error: 'URL is required' });
     }
 
-    if (!isValidUrl(url)) {
-      return res.status(400).json({ error: 'Invalid URL format' });
+    logDebug('Processing URL:', url);
+
+    // Get the path to the Python script
+    const scriptPath = path.join(__dirname, '../utils/article_extractor.py');
+
+    // Execute the Python script
+    const { stdout } = await execAsync(`python3 ${scriptPath} "${url}"`);
+    
+    // Parse the Python script output
+    const articleData = JSON.parse(stdout);
+
+    if (!articleData.success) {
+      return res.status(400).json({ 
+        error: 'Failed to extract article content',
+        details: articleData.error 
+      });
     }
 
-    console.log('Processing URL:', url);
+    if (!articleData.text) {
+      return res.status(400).json({ error: 'No readable content found at URL' });
+    }
 
-    // Fetch content from URL with timeout and proper headers
-    const response = await axios.get(url, {
-      timeout: 10000, // 10 second timeout
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5'
-      },
-      maxContentLength: 10 * 1024 * 1024 // 10MB limit
+    logDebug('Successfully extracted article content', {
+      title: articleData.title,
+      authors: articleData.authors,
+      publishDate: articleData.publish_date,
+      textLength: articleData.text.length,
+      previewText: articleData.text.substring(0, 100)
     });
 
-    // Check content type
-    const contentType = response.headers['content-type'] || '';
-    if (!contentType.includes('text/html') && !contentType.includes('application/xml')) {
-      throw new Error('URL does not point to a readable web page');
-    }
-
-    // Extract text from HTML
-    const htmlContent = response.data;
-    const extractedText = extractTextFromHTML(htmlContent);
-
-    if (!extractedText || extractedText.length < 50) {
-      throw new Error('No meaningful content found on the webpage');
-    }
-
-    console.log('Successfully extracted text from URL:', {
-      urlLength: url.length,
-      extractedLength: extractedText.length,
-      preview: extractedText.substring(0, 100)
-    });
-
-    // Generate summary
-    const { summary, modelUsed } = await generateSummary(extractedText, 'url');
+    // Generate summary using the extracted text
+    const { summary, modelUsed } = await generateSummary(articleData.text, 'url');
 
     // Save to MongoDB
     const newSummary = new Summary({
       userId: req.user._id,
-      originalContent: extractedText,
+      originalContent: articleData.text,
       summary,
       modelUsed,
       type: 'url',
-      sourceUrl: url
+      sourceUrl: url,
+      metadata: {
+        title: articleData.title,
+        authors: articleData.authors,
+        publishDate: articleData.publish_date,
+        topImage: articleData.top_image
+      }
     });
     await newSummary.save();
 
-    console.log('Summary generated and saved successfully:', {
+    logDebug('Summary generated and saved successfully:', {
       summaryLength: summary.length,
       modelUsed,
       summaryPreview: summary.substring(0, 100)
     });
 
-    res.status(200).json({ 
+    return res.status(200).json({ 
       summary, 
       model_used: modelUsed, 
       id: newSummary._id,
-      url: url
+      url: url,
+      metadata: {
+        title: articleData.title,
+        authors: articleData.authors,
+        publishDate: articleData.publish_date,
+        topImage: articleData.top_image
+      }
     });
 
   } catch (error: any) {
     console.error('URL summarization error:', {
       message: error.message,
       url: req.body.url,
-      response: error.response?.data,
-      status: error.response?.status
+      error: error
     });
 
-    // Send appropriate error message based on the type of error
-    let errorMessage = 'Error summarizing URL';
-    let statusCode = 500;
-
-    if (error.code === 'ECONNABORTED') {
-      errorMessage = 'URL request timed out';
-      statusCode = 408;
-    } else if (error.response) {
-      if (error.response.status === 404) {
-        errorMessage = 'URL not found';
-        statusCode = 404;
-      } else if (error.response.status === 403) {
-        errorMessage = 'Access to URL forbidden';
-        statusCode = 403;
-      }
-    } else if (!isValidUrl(req.body.url)) {
-      errorMessage = 'Invalid URL format';
-      statusCode = 400;
+    if (error.code === 'ENOENT') {
+      return res.status(500).json({ 
+        error: 'Article extraction script not found. Please ensure Python and newspaper3k are installed.' 
+      });
     }
 
-    res.status(statusCode).json({ 
-      error: errorMessage,
-      details: error.message
+    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+      return res.status(400).json({ 
+        error: 'Could not connect to the URL. Please check if the URL is valid and accessible.' 
+      });
+    }
+
+    return res.status(500).json({ 
+      error: `Failed to process URL: ${error.message}` 
     });
   }
 });

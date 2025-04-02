@@ -8,6 +8,12 @@ export interface ISummary extends Document {
   type: 'text' | 'url' | 'file';
   sourceUrl?: string;
   fileName?: string;
+  metadata: {
+    title: string;
+    authors: string;
+    publishDate: string;
+    topImage: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,6 +47,12 @@ const summarySchema = new mongoose.Schema(
     },
     fileName: {
       type: String,
+    },
+    metadata: {
+      title: String,
+      authors: String,
+      publishDate: String,
+      topImage: String
     },
   },
   {
