@@ -120,16 +120,45 @@ The application will be available at:
 ## Model Details
 
 ### BART-large-CNN
-- Optimized for news article summarization
-- Maximum input length: 1000 characters
-- Summary length: 50-150 words
-- Best for shorter, structured content
+- Optimized for news article summarization and technical content
+- Best for medium-length content (500-1500 characters)
+- Balanced for coherence with temperature 0.4
+- Uses beam search with 8 beams
+- Strengths: technical content, news articles, medium-length content
 
 ### LONGT5
-- Specialized for longer documents
+- Specialized for longer documents and research papers
 - Can handle input up to 16,000 tokens
-- Better for academic papers and long articles
-- Maintains context across longer texts
+- Optimized for research papers and technical documents
+- Uses balanced temperature of 0.5 with 5 beams
+- Strengths: research papers, long documents, technical content
+
+### T5-base
+- Versatile model for general text summarization
+- Handles content up to 1024 tokens
+- Good for medium-length content
+- Uses higher temperature (0.6) for more creative summaries
+- Strengths: general text, medium-length content, multi-language support
+
+### PEGASUS-XSUM
+- Optimized for concise, news-style summaries
+- Best for shorter documents (up to 1024 tokens)
+- Uses 6 beams for diverse summary generation
+- Balanced temperature of 0.5
+- Strengths: news articles, short documents, extractive summaries
+
+### BART-large-XSUM
+- Specialized for very concise summarization
+- Optimal for short texts (up to 512 tokens)
+- Higher temperature (0.6) for more dynamic summaries
+- Uses 6 beams with length penalty 1.4
+- Strengths: concise summaries, news articles, short documents
+
+The system automatically selects the most appropriate model based on:
+- Text length
+- Document type (research paper, technical content, etc.)
+- Content characteristics
+- Input method (text, URL, or file)
 
 ## Contributing
 
