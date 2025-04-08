@@ -1,10 +1,11 @@
-import mongoose, { Document } from 'mongoose';
+import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
   fullName: string;
   email: string;
   password: string;
+  summaries: Schema.Types.ObjectId[];
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -30,7 +31,11 @@ const userSchema = new mongoose.Schema(
       required: [true, 'Password is required'],
       minlength: [6, 'Password must be at least 6 characters long'],
       select: false // Don't include password by default in queries
-    }
+    },
+    summaries: [{
+      type: Schema.Types.ObjectId,
+      ref: 'Summary'
+    }]
   },
   {
     timestamps: true,
