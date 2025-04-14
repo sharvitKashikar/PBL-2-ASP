@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* Base styles */
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+@layer base {
+  html, body {
+    @apply m-0 p-0 min-h-screen w-full;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+
+  #root {
+    @apply min-h-screen w-full;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200;
+  }
+  
+  .btn-secondary {
+    @apply px-4 py-2 bg-white text-gray-700 font-medium border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200;
+  }
+
+  .input-field {
+    @apply block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm;
+  }
+
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full;
+  }
+
+  .section-container {
+    @apply max-w-4xl mx-auto;
+  }
+}
+
+/* Button styles */
+button {
+  @apply font-medium text-sm rounded-lg px-4 py-2 transition-colors duration-200;
+}
+
+button[type="button"],
+button[type="submit"],
+button[type="reset"] {
+  @apply bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  body {
+    @apply bg-gray-900 text-gray-100;
+  }
+  
+  button[type="button"],
+  button[type="submit"],
+  button[type="reset"] {
+    @apply bg-blue-500 hover:bg-blue-600;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-800 text-white border-gray-700 hover:bg-gray-700;
+  }
+}
