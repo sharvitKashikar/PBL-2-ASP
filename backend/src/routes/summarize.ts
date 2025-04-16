@@ -255,26 +255,64 @@ router.post('/text', auth, async (req: any, res) => {
     if (!text) {
       return res.status(400).json({ error: 'No text provided' });
     }
-    const { summary, modelUsed } = await generateSummary(text);
-    
-    const newSummary = new Summary({
-      userId: req.user._id,
-      originalContent: text,
-      summary,
-      modelUsed,
-      type: 'text'
-    });
-    
-    await newSummary.save();
-    
-    res.status(200).json({ 
-      summary, 
-      model_used: modelUsed, 
-      id: newSummary._id 
-    });
+
+    if (text.trim().length === 0) {
+      return res.status(400).json({ error: 'Empty text provided' });
+    }
+
+    // Create temporary input file
+    const tmpDir = path.resolve(CONFIG.UPLOAD_DIR);
+    await fs.mkdir(tmpDir, { recursive: true });
+    const tmpInputPath = path.resolve(tmpDir, `${Date.now()}_input.txt`);
+    await fs.writeFile(tmpInputPath, text);
+
+    try {
+      const { summary, modelUsed } = await generateSummary(text);
+      
+      const newSummary = new Summary({
+        userId: req.user._id,
+        originalContent: text,
+        summary,
+        modelUsed,
+        type: 'text'
+      });
+      
+      await newSummary.save();
+      
+      res.status(200).json({ 
+        summary, 
+        model_used: modelUsed, 
+        id: newSummary._id 
+      });
+    } catch (error: any) {
+      console.error('Summary generation error:', error);
+      
+      // Check if error is from Python script
+      if (typeof error.message === 'string' && error.message.includes('Failed to generate summary')) {
+        return res.status(500).json({ 
+          error: 'Failed to generate summary',
+          details: error.message
+        });
+      }
+      
+      res.status(500).json({ 
+        error: 'Error generating summary',
+        details: error.message || 'Unknown error occurred'
+      });
+    } finally {
+      // Clean up temporary file
+      try {
+        await fs.unlink(tmpInputPath);
+      } catch (e) {
+        console.error('Error deleting temporary file:', e);
+      }
+    }
   } catch (error: any) {
     console.error('Text summarization error:', error);
-    res.status(500).json({ error: error.message || 'Error summarizing text' });
+    res.status(500).json({ 
+      error: 'Error processing request',
+      details: error.message || 'Unknown error occurred'
+    });
   }
 });
 

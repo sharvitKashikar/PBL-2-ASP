@@ -196,49 +196,54 @@ def run_inference(input_file, model_name, params_json):
             text = f.read().strip()
         
         if not text:
-            raise ValueError("Empty text provided for summarization")
+            logger.error("Empty text provided")
+            return json.dumps({"error": "Empty text provided for summarization"})
         
         logger.info(f"Input text length: {len(text)} characters")
         
         # Load model and tokenizer
-        model, tokenizer = load_model(model_name)
+        try:
+            model, tokenizer = load_model(model_name)
+            logger.info("Model and tokenizer loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load model: {str(e)}")
+            return json.dumps({"error": f"Failed to load model: {str(e)}"})
+        
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {device}")
         model = model.to(device)
+        
+        # Parse parameters
+        try:
+            params = json.loads(params_json)
+            logger.info(f"Using parameters: {params}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid parameters JSON: {str(e)}")
+            params = {}
         
         # Detect content type and get appropriate config
         content_type = detect_content_type(text)
-        base_config = CONTENT_TYPE_CONFIGS[content_type]
+        base_config = CONTENT_TYPE_CONFIGS.get(content_type, CONTENT_TYPE_CONFIGS["article"])
+        config = {**base_config, **params}
+        logger.info(f"Using content type: {content_type} with config: {config}")
         
-        # Merge with user-provided parameters
+        # Generate summary
         try:
-            user_params = json.loads(params_json)
-            config = {**base_config, **user_params}
-        except json.JSONDecodeError:
-            logger.warning("Invalid params_json, using default config")
-            config = base_config
-        
-        # Tokenize and generate summary
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024).to(device)
-        
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_length=config["max_length"],
-                min_length=config["min_length"],
-                length_penalty=config["length_penalty"],
-                num_beams=config["num_beams"],
-                temperature=config["temperature"],
-                repetition_penalty=config["repetition_penalty"],
-                early_stopping=True
-            )
-        
-        summary = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        logger.info(f"Generated summary using {content_type} configuration")
-        print(summary)
+            summary = generate_summary(text, model, tokenizer, config)
+            if not summary:
+                logger.error("Generated summary is empty")
+                return json.dumps({"error": "Failed to generate summary: empty result"})
+            
+            logger.info("Summary generated successfully")
+            return json.dumps({"summary": summary})
+            
+        except Exception as e:
+            logger.error(f"Error generating summary: {str(e)}")
+            return json.dumps({"error": f"Failed to generate summary: {str(e)}"})
         
     except Exception as e:
         logger.error(f"Error during inference: {str(e)}")
-        raise
+        return json.dumps({"error": f"Error during inference: {str(e)}"})
 
 def main():
     """Main function to handle command line arguments and generate summary."""
@@ -269,16 +274,8 @@ def main():
         logger.info(f"Input text length: {len(text)} characters")
         
         # Load model and generate summary
-        model, tokenizer = load_model(model_name)
-        summary = generate_summary(text, model, tokenizer, params)
-        
-        # Return result as JSON
-        result = {
-            "success": True,
-            "summary": summary
-        }
-        print(json.dumps(result))
-        sys.exit(0)
+        result = run_inference(input_file, model_name, json.dumps(params))
+        print(result)
         
     except Exception as e:
         result = {
