@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc",
+    "dev": "nodemon src/index.ts",
+    "build": "tsc && cp -r src/utils/*.py dist/utils/",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -38,7 +38,7 @@
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.11",
     "@types/node": "^20.11.19",
-    "ts-node-dev": "^2.0.0",
+    "nodemon": "^2.0.21",
     "typescript": "^5.3.3"
   }
 }

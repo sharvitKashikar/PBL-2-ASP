@@ -67,6 +67,11 @@ export default function Summarize() {
 
       switch (activeTab) {
         case 'text':
+          if (!text.trim()) {
+            toast.error('Please enter some text');
+            setLoading(false);
+            return;
+          }
           response = await axios.post(
             `${import.meta.env.VITE_API_URL}/summarize/text`,
             { text },
@@ -74,6 +79,11 @@ export default function Summarize() {
           );
           break;
         case 'url':
+          if (!url.trim()) {
+            toast.error('Please enter a valid URL');
+            setLoading(false);
+            return;
+          }
           response = await axios.post(
             `${import.meta.env.VITE_API_URL}/summarize/url`,
             { url },
@@ -83,6 +93,7 @@ export default function Summarize() {
         case 'file':
           if (!file) {
             toast.error('Please select a file');
+            setLoading(false);
             return;
           }
           const formData = new FormData();
@@ -100,13 +111,23 @@ export default function Summarize() {
           break;
       }
 
-      setSummary(response?.data.summary || '');
-      setModelUsed(response?.data.model_used || '');
-      toast.success('Summary generated successfully!');
-      await fetchHistory();
+      if (response?.data) {
+        const { summary: newSummary, modelUsed: model } = response.data;
+        if (typeof newSummary === 'string' && newSummary.trim()) {
+          setSummary(newSummary);
+          setModelUsed(model || '');
+          toast.success('Summary generated successfully!');
+          await fetchHistory();
+        } else {
+          throw new Error('Invalid summary response');
+        }
+      } else {
+        throw new Error('No response data received');
+      }
     } catch (error: any) {
       console.error('Error:', error);
       toast.error(error.response?.data?.error || 'Error generating summary');
+      setSummary('');
     } finally {
       setLoading(false);
     }

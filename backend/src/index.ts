@@ -47,44 +47,19 @@ app.use('/api/summarize', summarizeRoutes);
 app.use('/api/history', historyRoutes);
 
 // Health check endpoint
-app.get('/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
-  });
+app.get('/health', (_req: Request, res: Response) => {
+  res.status(200).json({ status: 'ok' });
 });
 
-// 404 handler
-app.use((req: Request, res: Response) => {
-  res.status(404).json({ error: 'Route not found' });
+// Handle 404
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
-// Error handling middleware
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('Global error:', err);
-  
-  // Handle different types of errors
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      error: 'Validation Error',
-      details: err.message
-    });
-  }
-
-  if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({
-      error: 'Unauthorized',
-      details: 'Invalid token or no token provided'
-    });
-  }
-
-  // Default error response
-  res.status(err.status || 500).json({
-    error: 'Internal Server Error',
-    details: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
+// Error handler
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error(err.stack);
+  return res.status(500).json({ error: 'Something broke!' });
 });
 
 // MongoDB connection with retry logic

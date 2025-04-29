@@ -42,41 +42,44 @@ const TEST_CASES = [
     }
 ];
 
-function calculateRougeScores(reference: string, candidate: string): { rouge1: number; rouge2: number; rougeL: number } {
-    // Normalize texts
-    reference = reference.toLowerCase().trim();
-    candidate = candidate.toLowerCase().trim();
+function getBigrams(words: string[]): string[] {
+    const bigrams: string[] = [];
+    for (let i = 0; i < words.length - 1; i++) {
+        bigrams.push(`${words[i]} ${words[i + 1]}`);
+    }
+    return bigrams;
+}
+
+export function calculateRougeScore(candidate: string, reference: string): number {
+    const candWords = candidate.toLowerCase().split(/\s+/);
+    const refWords = reference.toLowerCase().split(/\s+/);
     
-    const refWords = reference.split(/\s+/);
-    const candWords = candidate.split(/\s+/);
-    
-    // ROUGE-1: Word overlap
-    const refSet = new Set(refWords);
     const candSet = new Set(candWords);
-    const commonWords = refWords.filter(w => candSet.has(w));
-    const rouge1 = commonWords.length / refWords.length;
+    const commonWords = new Set(candWords.filter(word => refWords.includes(word)));
     
-    // ROUGE-2: Bigram overlap
-    const refBigrams = new Set();
-    const candBigrams = new Set();
-    for (let i = 0; i < refWords.length - 1; i++) {
-        refBigrams.add(`${refWords[i]} ${refWords[i + 1]}`);
-    }
-    for (let i = 0; i < candWords.length - 1; i++) {
-        candBigrams.add(`${candWords[i]} ${candWords[i + 1]}`);
-    }
-    const commonBigrams = Array.from(refBigrams).filter(b => candBigrams.has(b));
-    const rouge2 = refBigrams.size > 0 ? commonBigrams.length / refBigrams.size : 0;
+    const precision = commonWords.size / candSet.size;
+    const recall = commonWords.size / refWords.length;
     
-    // ROUGE-L: Longest Common Subsequence
-    const lcs = calculateLCS(refWords, candWords);
-    const rougeL = lcs / refWords.length;
+    if (precision + recall === 0) return 0;
+    return (2 * precision * recall) / (precision + recall);
+}
+
+export function calculateRougeScores(reference: string, candidate: string): { rouge1: number; rouge2: number; rougeL: number } {
+    const candWords = candidate.toLowerCase().split(/\s+/);
+    const refWords = reference.toLowerCase().split(/\s+/);
     
-    return {
-        rouge1: Math.min(rouge1, 1),
-        rouge2: Math.min(rouge2, 1),
-        rougeL: Math.min(rougeL, 1)
-    };
+    // Calculate ROUGE-1
+    const rouge1 = calculateRougeScore(candidate, reference);
+    
+    // Calculate ROUGE-2 (bigram overlap)
+    const candBigrams = getBigrams(candWords);
+    const refBigrams = getBigrams(refWords);
+    const rouge2 = calculateRougeScore(candBigrams.join(' '), refBigrams.join(' '));
+    
+    // Calculate ROUGE-L (longest common subsequence)
+    const rougeL = calculateLCS(candWords, refWords);
+    
+    return { rouge1, rouge2, rougeL };
 }
 
 function calculateLCS(x: string[], y: string[]): number {

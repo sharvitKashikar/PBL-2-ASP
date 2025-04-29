@@ -10,6 +10,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { CONFIG } from '../config';
+import { Response } from 'express';
 
 dotenv.config();
 const router = express.Router();
@@ -28,31 +29,31 @@ interface ModelConfig {
 
 const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'FLAN-T5-XL': {
-    url: 'facebook/bart-large-cnn',
-    maxLength: 200,  // Increased for better coverage
-    minLength: 50,   // Adjusted for more detail
-    temperature: 0.3, // Slightly increased for creativity
-    numBeams: 4,     // Increased for better search
+    url: 'google/flan-t5-xl',
+    maxLength: 100,
+    minLength: 30,
+    temperature: 0.8,
+    numBeams: 6,
     isLongFormCapable: false,
     preferredTextTypes: ['article', 'blog', 'general']
   },
   'PEGASUS': {
-    url: 'google/pegasus-xsum',
-    maxLength: 800,  // Increased for research papers
-    minLength: 150,  // Higher minimum for comprehensive summaries
-    temperature: 0.2,
-    numBeams: 6,     // More beams for complex content
+    url: 'google/pegasus-large',
+    maxLength: 120,
+    minLength: 40,
+    temperature: 0.8,
+    numBeams: 6,
     isLongFormCapable: true,
     preferredTextTypes: ['research', 'technical', 'long-form', 'pdf']
   },
   'BART-CNN': {
     url: 'facebook/bart-large-cnn',
-    maxLength: 300,  // Adjusted for news articles
-    minLength: 75,   // Increased for better context
-    temperature: 0.25,
-    numBeams: 5,     // Balanced for news content
-    isLongFormCapable: false,
-    preferredTextTypes: ['news', 'articles', 'web']
+    maxLength: 75,
+    minLength: 25,
+    temperature: 0.8,
+    numBeams: 6,
+    isLongFormCapable: true,
+    preferredTextTypes: ['all']
   }
 };
 
@@ -77,6 +78,7 @@ const runLocalModel = async (text: string, modelName: string, params: any) => {
     const tmpDir = path.resolve(CONFIG.UPLOAD_DIR);
     await fs.mkdir(tmpDir, { recursive: true });
     tmpInputPath = path.resolve(tmpDir, `${Date.now()}_input.txt`);
+    
     await fs.writeFile(tmpInputPath, text);
 
     const pythonCmd = CONFIG.PYTHON_ENV;
@@ -115,34 +117,20 @@ const runLocalModel = async (text: string, modelName: string, params: any) => {
 };
 
 // Helper function to detect text type
-const detectTextType = (text: string): string => {
-  const wordCount = text.split(/\s+/).length;
-  const hasAcademicKeywords = /(?:research|study|methodology|findings|conclusion|abstract)/i.test(text);
-  const hasNewsKeywords = /(?:reported|announced|according to|news|today)/i.test(text);
+// const detectTextType = (text: string): string => {
+//   const wordCount = text.split(/\s+/).length;
+//   const hasAcademicKeywords = /(?:research|study|methodology|findings|conclusion|abstract)/i.test(text);
+//   const hasNewsKeywords = /(?:reported|announced|according to|news|today)/i.test(text);
   
-  if (hasAcademicKeywords && wordCount > 1000) return 'research';
-  if (hasNewsKeywords) return 'news';
-  if (wordCount > 2000) return 'long-form';
-  return 'article';
-};
+//   if (hasAcademicKeywords && wordCount > 1000) return 'research';
+//   if (hasNewsKeywords) return 'news';
+//   if (wordCount > 2000) return 'long-form';
+//   return 'article';
+// };
 
 // Select best model based on text characteristics
-const selectBestModel = (text: string, fileType?: string): string => {
-  const wordCount = text.split(/\s+/).length;
-  const textType = detectTextType(text);
-  
-  // For very long texts or PDFs, prefer PEGASUS
-  if (wordCount > 2000 || fileType === 'application/pdf') {
-    return 'PEGASUS';
-  }
-  
-  // For news articles, prefer BART-CNN
-  if (textType === 'news') {
-    return 'BART-CNN';
-  }
-  
-  // For general articles and shorter texts, use FLAN-T5-XL
-  return 'FLAN-T5-XL';
+const selectBestModel = (_text: string, _fileType?: string): string => {
+  return 'BART-CNN';
 };
 
 // Main summarization function
@@ -164,54 +152,29 @@ const generateSummary = async (text: string, fileType?: string): Promise<{ summa
       .replace(/\s+/g, ' ')  // Normalize whitespace
       .trim();
 
-    // Break text into smaller chunks if too long
-    const maxChunkLength = 1000;
-    let textToProcess = cleanText;
-    if (cleanText.length > maxChunkLength) {
-      const sentences = cleanText.match(/[^.!?]+[.!?]+/g) || [];
-      const middleIndex = Math.floor(sentences.length / 2);
-      textToProcess = sentences.slice(0, middleIndex + 1).join(' ');
-    }
-
-    // Focused prompt for better accuracy
-    const prompt = `Provide a concise and accurate summary of the main points: ${textToProcess}`;
-
-    const summary = await runLocalModel(textToProcess, config.url, {
-      max_length: config.maxLength,
-      min_length: config.minLength,
-      temperature: config.temperature,
-      num_beams: config.numBeams,
-      no_repeat_ngram_size: 2,
-      length_penalty: 0.8,        // Encourage conciseness
+    const summary = await runLocalModel(cleanText, config.url, {
+      max_length: 150,
+      min_length: 75,
+      temperature: 0.7,
+      num_beams: 8,
+      no_repeat_ngram_size: 3,
+      length_penalty: 2.0,
       early_stopping: true,
-      top_p: 0.95,               // Slightly higher for better word choice
-      repetition_penalty: 1.2
+      top_p: 0.92,
+      top_k: 50,
+      repetition_penalty: 1.5
     });
 
-    // Enhanced post-processing
-    const cleanedSummary = summary
-      .replace(/(?:read more|learn more|find out more|click here|discover|contact us|subscribe|sign up|in this article).*$/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
     const result = {
-      summary: cleanedSummary,
+      summary: summary,
       modelUsed: modelName
     };
 
     // Cache the result
     summaryCache.set(cacheKey, result);
-    
-    // Clear old cache entries if cache gets too large
-    if (summaryCache.size > 1000) {
-      const oldestKey = summaryCache.keys().next().value;
-      summaryCache.delete(oldestKey);
-    }
-
     return result;
-  } catch (error) {
-    console.error('Summary generation error:', error);
-    throw error;
+  } catch (error: any) {
+    throw new Error(`Failed to generate summary: ${error.message}`);
   }
 };
 
@@ -249,70 +212,24 @@ router.get('/history', auth, async (req: any, res) => {
   }
 });
 
-router.post('/text', auth, async (req: any, res) => {
+router.post('/text', auth, async (req: any, res: Response) => {
   try {
     const { text } = req.body;
     if (!text) {
       return res.status(400).json({ error: 'No text provided' });
     }
 
-    if (text.trim().length === 0) {
-      return res.status(400).json({ error: 'Empty text provided' });
-    }
+    console.log('[%s] Received text summarization request', new Date().toISOString());
+    console.log('Data:', {
+      textLength: text.length,
+      textPreview: text.substring(0, 100)
+    });
 
-    // Create temporary input file
-    const tmpDir = path.resolve(CONFIG.UPLOAD_DIR);
-    await fs.mkdir(tmpDir, { recursive: true });
-    const tmpInputPath = path.resolve(tmpDir, `${Date.now()}_input.txt`);
-    await fs.writeFile(tmpInputPath, text);
-
-    try {
-      const { summary, modelUsed } = await generateSummary(text);
-      
-      const newSummary = new Summary({
-        userId: req.user._id,
-        originalContent: text,
-        summary,
-        modelUsed,
-        type: 'text'
-      });
-      
-      await newSummary.save();
-      
-      res.status(200).json({ 
-        summary, 
-        model_used: modelUsed, 
-        id: newSummary._id 
-      });
-    } catch (error: any) {
-      console.error('Summary generation error:', error);
-      
-      // Check if error is from Python script
-      if (typeof error.message === 'string' && error.message.includes('Failed to generate summary')) {
-        return res.status(500).json({ 
-          error: 'Failed to generate summary',
-          details: error.message
-        });
-      }
-      
-      res.status(500).json({ 
-        error: 'Error generating summary',
-        details: error.message || 'Unknown error occurred'
-      });
-    } finally {
-      // Clean up temporary file
-      try {
-        await fs.unlink(tmpInputPath);
-      } catch (e) {
-        console.error('Error deleting temporary file:', e);
-      }
-    }
+    const result = await generateSummary(text);
+    return res.json(result);
   } catch (error: any) {
     console.error('Text summarization error:', error);
-    res.status(500).json({ 
-      error: 'Error processing request',
-      details: error.message || 'Unknown error occurred'
-    });
+    return res.status(500).json({ error: 'Failed to generate summary' });
   }
 });
 
@@ -340,9 +257,9 @@ router.post('/file', auth, upload.single('file'), async (req: any, res) => {
       text = await fs.readFile(filePath, 'utf8');
     }
 
-    if (!text.trim()) {
-      throw new Error('No readable text content found in file');
-    }
+      if (!text.trim()) {
+        throw new Error('No readable text content found in file');
+      }
 
     // Process only first portion for very long texts
     const maxChars = 2000;
@@ -353,24 +270,24 @@ router.post('/file', auth, upload.single('file'), async (req: any, res) => {
 
     const { summary, modelUsed } = await generateSummary(text, req.file.mimetype);
 
-    const newSummary = new Summary({
-      userId: req.user._id,
-      originalContent: text,
-      summary,
-      modelUsed,
-      type: 'file',
-      filename: req.file.originalname
-    });
+      const newSummary = new Summary({
+        userId: req.user._id,
+        originalContent: text,
+        summary,
+        modelUsed,
+        type: 'file',
+        filename: req.file.originalname
+      });
 
-    await newSummary.save();
-    await fs.unlink(filePath);
+      await newSummary.save();
+      await fs.unlink(filePath);
 
     res.status(200).json({
-      summary,
-      model_used: modelUsed,
-      id: newSummary._id,
-      filename: req.file.originalname
-    });
+        summary,
+        model_used: modelUsed,
+        id: newSummary._id,
+        filename: req.file.originalname
+      });
 
   } catch (error: any) {
     if (filePath) {

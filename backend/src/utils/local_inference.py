@@ -17,8 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Get the absolute path to the model cache directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CACHE_DIR = os.path.join(SCRIPT_DIR, '../../model_cache')
-MODEL_CACHE_DIR = os.getenv('MODEL_CACHE_DIR', DEFAULT_CACHE_DIR)
+MODEL_CACHE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '../../model_cache'))
 
 CONTENT_TYPE_CONFIGS = {
     "article": {
@@ -50,27 +49,11 @@ CONTENT_TYPE_CONFIGS = {
 def ensure_cache_dir():
     """Ensure the model cache directory exists."""
     try:
-        cache_dir = Path(MODEL_CACHE_DIR).resolve()
-        os.makedirs(str(cache_dir), mode=0o755, exist_ok=True)
-        logger.info(f"Using cache directory: {cache_dir}")
-        
-        # Test write permissions
-        test_file = cache_dir / '.write_test'
-        try:
-            test_file.touch()
-            test_file.unlink()
-        except Exception as e:
-            logger.warning(f"Cache directory is not writable: {e}")
-            # Fallback to system temp directory
-            import tempfile
-            cache_dir = Path(tempfile.gettempdir()) / 'model_cache'
-            os.makedirs(str(cache_dir), mode=0o755, exist_ok=True)
-            logger.info(f"Falling back to temporary cache directory: {cache_dir}")
-        
-        return str(cache_dir)
+        os.makedirs(MODEL_CACHE_DIR, mode=0o755, exist_ok=True)
+        logger.info(f"Using cache directory: {MODEL_CACHE_DIR}")
+        return MODEL_CACHE_DIR
     except Exception as e:
         logger.error(f"Error creating cache directory: {str(e)}")
-        # Fallback to a temporary directory
         import tempfile
         tmp_dir = tempfile.mkdtemp(prefix='model_cache_')
         logger.info(f"Using temporary cache directory: {tmp_dir}")
@@ -93,11 +76,13 @@ def detect_content_type(text):
 
 def load_model(model_name):
     """Load model and tokenizer from HuggingFace Hub or cache."""
-    cache_dir = os.path.join(os.path.dirname(__file__), "model_cache")
-    os.makedirs(cache_dir, exist_ok=True)
-    logger.info(f"Using cache directory: {cache_dir}")
+    cache_dir = ensure_cache_dir()
+    logger.info(f"Loading model {model_name} from cache directory: {cache_dir}")
     
     try:
+        # Always use BART-CNN for consistency
+        model_name = 'facebook/bart-large-cnn'
+            
         tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
         model = AutoModelForSeq2SeqLM.from_pretrained(model_name, cache_dir=cache_dir)
         logger.info("Successfully loaded model and tokenizer")
@@ -136,53 +121,68 @@ def chunk_text(text, max_length=1024):
 
 def generate_summary(text, model, tokenizer, params):
     """Generate summary using the loaded model with specified parameters."""
-    import torch
-    
-    # Set device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
-    
-    # Validate and process parameters
-    max_length = int(params.get('max_length', 300))
-    min_length = int(params.get('min_length', 100))
-    temperature = float(params.get('temperature', 0.3))
-    num_beams = int(params.get('num_beams', 4))
-    no_repeat_ngram_size = int(params.get('no_repeat_ngram_size', 3))
-    length_penalty = float(params.get('length_penalty', 2.0))
-    early_stopping = bool(params.get('early_stopping', True))
-    
-    # Chunk text if needed
-    chunks = chunk_text(text, max_length=1024)  # Tokenizer max length
-    summaries = []
-    
     try:
-        for chunk in chunks:
-            # Tokenize input
-            inputs = tokenizer(chunk, return_tensors="pt", truncation=True, max_length=1024)
-            inputs = inputs.to(device)
+        # Input validation
+        if len(text.strip()) < 10:
+            raise ValueError("Input text is too short")
             
-            # Generate summary
-            with torch.no_grad():
-                output_ids = model.generate(
-                    inputs["input_ids"],
-                    max_length=max_length,
-                    min_length=min_length,
-                    num_beams=num_beams,
-                    temperature=temperature,
-                    do_sample=temperature > 0,
-                    no_repeat_ngram_size=no_repeat_ngram_size,
-                    length_penalty=length_penalty,
-                    early_stopping=early_stopping
-                )
-            
-            # Decode summary
-            summary = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-            summaries.append(summary)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Using device: {device}")
+        model = model.to(device)
         
-        # Combine summaries if multiple chunks
-        final_summary = " ".join(summaries)
-        logger.info("Summary generated successfully")
-        return final_summary
+        # Calculate dynamic length constraints based on input length
+        input_length = len(text.split())
+        max_length = min(params.get('max_length', 150), input_length // 2)  # Summary can be up to half of input
+        min_length = max(params.get('min_length', 75), input_length // 4)   # At least quarter of input
+        
+        # Ensure max_length is always greater than min_length
+        if max_length <= min_length:
+            max_length = min_length + 25
+            
+        # Tokenize with truncation
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024)
+        inputs = inputs.to(device)
+        
+        # Generate summary with comprehensive parameters
+        with torch.no_grad():
+            output_ids = model.generate(
+                inputs["input_ids"],
+                max_length=max_length,
+                min_length=min_length,
+                num_beams=params.get('num_beams', 8),
+                temperature=params.get('temperature', 0.7),
+                do_sample=True,
+                early_stopping=True,
+                no_repeat_ngram_size=3,
+                length_penalty=params.get('length_penalty', 2.0),
+                repetition_penalty=params.get('repetition_penalty', 1.5),
+                top_p=params.get('top_p', 0.92),
+                top_k=params.get('top_k', 50)
+            )
+        
+        summary = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        
+        # If summary is too similar to input or too short, try with more aggressive parameters
+        if len(summary.split()) < min_length or summary.lower() == text.lower():
+            logger.info("First attempt produced insufficient summary, trying with adjusted parameters")
+            output_ids = model.generate(
+                inputs["input_ids"],
+                max_length=max_length,
+                min_length=min_length,
+                num_beams=10,
+                temperature=0.8,
+                do_sample=True,
+                early_stopping=True,
+                no_repeat_ngram_size=3,
+                length_penalty=2.5,
+                repetition_penalty=1.8,
+                top_p=0.95,
+                top_k=40
+            )
+            summary = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        
+        logger.info(f"Generated summary length: {len(summary.split())}")
+        return summary
         
     except Exception as e:
         logger.error(f"Error generating summary: {str(e)}")
@@ -191,99 +191,52 @@ def generate_summary(text, model, tokenizer, params):
 def run_inference(input_file, model_name, params_json):
     """Run inference using the specified model and parameters."""
     try:
+        # Handle paths with spaces
+        input_file = os.path.abspath(os.path.expanduser(input_file))
+        logger.info(f"Reading input from: {input_file}")
+        
         # Load input text
         with open(input_file, 'r', encoding='utf-8') as f:
             text = f.read().strip()
         
         if not text:
-            logger.error("Empty text provided")
             return json.dumps({"error": "Empty text provided for summarization"})
-        
-        logger.info(f"Input text length: {len(text)} characters")
-        
-        # Load model and tokenizer
-        try:
-            model, tokenizer = load_model(model_name)
-            logger.info("Model and tokenizer loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load model: {str(e)}")
-            return json.dumps({"error": f"Failed to load model: {str(e)}"})
-        
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info(f"Using device: {device}")
-        model = model.to(device)
-        
+            
         # Parse parameters
         try:
             params = json.loads(params_json)
-            logger.info(f"Using parameters: {params}")
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid parameters JSON: {str(e)}")
-            params = {}
-        
-        # Detect content type and get appropriate config
-        content_type = detect_content_type(text)
-        base_config = CONTENT_TYPE_CONFIGS.get(content_type, CONTENT_TYPE_CONFIGS["article"])
-        config = {**base_config, **params}
-        logger.info(f"Using content type: {content_type} with config: {config}")
-        
+            return json.dumps({"error": f"Invalid parameters format: {str(e)}"})
+            
+        # Load model and tokenizer
+        try:
+            model, tokenizer = load_model(model_name)
+        except Exception as e:
+            return json.dumps({"error": f"Model loading failed: {str(e)}"})
+            
         # Generate summary
         try:
-            summary = generate_summary(text, model, tokenizer, config)
-            if not summary:
-                logger.error("Generated summary is empty")
-                return json.dumps({"error": "Failed to generate summary: empty result"})
-            
-            logger.info("Summary generated successfully")
+            summary = generate_summary(text, model, tokenizer, params)
             return json.dumps({"summary": summary})
-            
         except Exception as e:
-            logger.error(f"Error generating summary: {str(e)}")
-            return json.dumps({"error": f"Failed to generate summary: {str(e)}"})
-        
+            return json.dumps({"error": f"Summary generation failed: {str(e)}"})
+            
     except Exception as e:
-        logger.error(f"Error during inference: {str(e)}")
-        return json.dumps({"error": f"Error during inference: {str(e)}"})
+        return json.dumps({"error": str(e)})
 
 def main():
-    """Main function to handle command line arguments and generate summary."""
-    import json
-    import sys
-    
+    """Main entry point."""
     if len(sys.argv) != 4:
-        result = {
-            "success": False,
-            "error": "Invalid arguments. Expected: input_file model_name params_json"
-        }
-        print(json.dumps(result))
+        print(json.dumps({
+            "error": "Invalid arguments. Usage: script.py <input_file> <model_name> <params_json>"
+        }))
         sys.exit(1)
+        
+    input_file = sys.argv[1]
+    model_name = sys.argv[2]
+    params_json = sys.argv[3]
     
-    try:
-        input_file = sys.argv[1]
-        model_name = sys.argv[2]
-        params = json.loads(sys.argv[3])
-        
-        # Read input text
-        with open(input_file, 'r', encoding='utf-8') as f:
-            text = f.read()
-        
-        # Log input details
-        logger.info(f"Model: {model_name}")
-        logger.info(f"Input file: {input_file}")
-        logger.info(f"Parameters: {params}")
-        logger.info(f"Input text length: {len(text)} characters")
-        
-        # Load model and generate summary
-        result = run_inference(input_file, model_name, json.dumps(params))
-        print(result)
-        
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        sys.exit(1)
+    print(run_inference(input_file, model_name, params_json))
 
 if __name__ == "__main__":
     main() 
