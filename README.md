@@ -1,6 +1,6 @@
 # AI Text Summarization Tool
 
-A full-stack web application that provides intelligent text summarization using a hybrid approach combining BART-large-CNN and LONGT5 models. The application supports multiple input formats including text, URLs, and files (PDF and text files).
+A full-stack web application that provides intelligent text summarization using a hybrid approach combining BART-large-CNN, pegasus and Flan-t5. The application supports multiple input formats including text, URLs, and files (PDF and text files).
 
 ## Features
 
